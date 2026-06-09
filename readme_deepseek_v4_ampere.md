@@ -25,6 +25,7 @@ On Ampere GPUs, the following automatically fall back to BF16:
 1. **KV Cache**: Stored as pure BF16 instead of FP8 quantized (no per-tile scale, 1024 bytes/token)
 2. **Attention (NSA MLA)**: `quant_to_nope_bf16_rope_bf16_pack` replaces the FP8 pack kernel
 3. **MTP Weights**: `_fix_mtp_fp8_weights()` dequantizes `e_proj`/`h_proj` from FP8 E4M3 to BF16 at load time
+4. **Activation Quantization**: `act_quant()` is skipped in the compressor and indexer paths — activations stay in BF16 instead of being quantized to FP8
 
 Device capability is auto-detected at startup—no manual flags needed.
 
