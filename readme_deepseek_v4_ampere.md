@@ -72,38 +72,17 @@ Device capability is auto-detected at startup—no manual flags needed.
 
 ## Installation
 
-### 1. Clone and set up ktransformers
+Follow the installation steps in the [official DeepSeek V4 Flash tutorial](doc/en/DeepSeek-V4-Flash.md). Key differences for this branch:
 
-```bash
-git clone https://github.com/harrychk/ktransformers.git
-cd ktransformers
-git checkout deepseek-v4-ampere
-git submodule update --init --recursive
-```
-
-### 2. Set up kt-kernel (editable install recommended)
-
-```bash
-cd kt-kernel
-pip install -e .
-```
-
-### 3. Set up sglang (must use the fork, not upstream)
-
-```bash
-cd ..
-pip install -e third_party/sglang/python
-```
-
-### 4. Install additional dependencies
-
-```bash
-pip install --upgrade flashinfer-python flashinfer-cubin
-pip install transformers==4.57.1
-pip install tilelang
-```
-
-> See the [official tutorial](doc/en/DeepSeek-V4-Flash.md) for detailed prerequisites including CUDA 12.8+, flashinfer ≥ 0.6.9, and transformers version constraints.
+- **Clone the fork** instead of upstream:
+  ```bash
+  git clone https://github.com/harrychk/ktransformers.git
+  cd ktransformers
+  git checkout deepseek-v4-ampere
+  git submodule update --init --recursive
+  ```
+- **kt-kernel**: install from this repo's `kt-kernel/` directory (editable recommended: `pip install -e kt-kernel/`)
+- **sglang**: install from `third_party/sglang/python` — this is the forked sglang with Ampere/MTP patches, NOT upstream `kvcache-ai/sglang`
 
 ## Weight Conversion
 
