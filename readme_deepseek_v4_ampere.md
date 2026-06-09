@@ -81,8 +81,8 @@ Follow the installation steps in the [official DeepSeek V4 Flash tutorial](doc/e
   git checkout deepseek-v4-ampere
   git submodule update --init --recursive
   ```
-- **kt-kernel**: install from this repo's `kt-kernel/` directory (editable recommended: `pip install -e kt-kernel/`)
-- **sglang**: install from `third_party/sglang/python` — this is the forked sglang with Ampere/MTP patches, NOT upstream `kvcache-ai/sglang`
+- **kt-kernel**: install from this repo's `kt-kernel/` directory
+- **sglang**: install from `third_party/sglang` — this is the forked sglang with Ampere/MTP patches, NOT upstream `kvcache-ai/sglang`
 
 ## Weight Conversion
 
@@ -93,9 +93,9 @@ huggingface-cli download deepseek-ai/DeepSeek-V4-Flash \
   --local-dir /path/to/models/DeepSeek-V4-Flash
 ```
 
-### Convert CPU Expert Weights (INT4)
+### Convert CPU Expert Weights (INT4/INT8)
 
-This step dequantizes MXFP4 routed experts and re-quantizes them to AMX-INT4 for CPU inference. Use the **MTP-aware** conversion script included in this branch:
+This step dequantizes MXFP4 routed experts and re-quantizes them to AMX-INT4/AMX-INT8 for CPU inference. Use the **MTP-aware** conversion script included in this branch:
 
 ```bash
 cd kt-kernel
@@ -106,8 +106,7 @@ python scripts/convert_cpu_weights_ds4_with_mtp.py \
   --output /path/to/models/DeepSeek-V4-Flash-AMXINT4 \
   --quant-method int4 \
   --cpuinfer-threads 64 \
-  --threadpool-count 4 \
-  --no-merge-safetensor
+  --threadpool-count 4
 ```
 
 **Parameters:**
@@ -117,7 +116,6 @@ python scripts/convert_cpu_weights_ds4_with_mtp.py \
 - `--quant-method int4`: Quantize to 4-bit (AMXINT4). Use `int8` for 8-bit.
 - `--cpuinfer-threads`: Number of CPU threads for inference
 - `--threadpool-count`: Number of NUMA nodes / thread pools
-- `--no-merge-safetensor`: Keep sharded output
 
 For INT8 quantization, replace `--quant-method int4` with `--quant-method int8` and output to a different directory (e.g., `DeepSeek-V4-Flash-AMXINT8`).
 
@@ -134,33 +132,29 @@ For INT8 quantization, replace `--quant-method int4` with `--quant-method int8` 
 ### Without MTP (INT4 CPU experts)
 
 ```bash
+export FLASHINFER_CUDA_ARCH_LIST=8.6a
+export TORCH_CUDA_ARCH_LIST="8.6+PTX"
 export SGLANG_DSV4_MODE=2604
 export SGLANG_DSV4_2604_SUBMODE=2604B
 
 numactl --interleave=all python -m sglang.launch_server \
   --host 0.0.0.0 --port 30000 \
   --model /path/to/models/DeepSeek-V4-Flash \
+  --served-model-name DeepSeek-V4-Flash \
   --kt-weight-path /path/to/models/DeepSeek-V4-Flash-AMXINT4 \
   --kt-method AMXINT4 \
-  --kt-num-gpu-experts 10 \
+  --kt-num-gpu-experts 0 \
   --kt-cpuinfer 64 \
   --kt-threadpool-count 4 \
-  --kt-gpu-prefill-token-threshold 4096 \
-  --kt-enable-dynamic-expert-update \
-  --tensor-parallel-size 1 \
-  --context-length 16384 \
+  --tensor-parallel-size 2 \
   --attention-backend flashinfer \
   --mem-fraction-static 0.85 \
-  --chunked-prefill-size 2048 \
-  --max-prefill-tokens 2048 \
-  --max-running-requests 2 \
-  --watchdog-timeout 1200 \
+  --chunked-prefill-size 8192 \
+  --max-running-requests 8 \
   --disable-shared-experts-fusion \
   --trust-remote-code \
-  --cuda-graph-bs 1 2 4 \
-  --cuda-graph-max-bs 4 \
-  --disable-radix-cache \
-  --skip-server-warmup
+  --tool-call-parser deepseekv4 \
+  --reasoning-parser deepseek-v4
 ```
 
 ### With MTP (Multi-Token Prediction, +20% throughput)
@@ -169,9 +163,9 @@ Append these flags to the command above:
 
 ```bash
   --speculative-algorithm EAGLE \
-  --speculative-num-steps 3 \
+  --speculative-num-steps 2 \
   --speculative-eagle-topk 1 \
-  --speculative-num-draft-tokens 4 \
+  --speculative-num-draft-tokens 3 \
   --speculative-moe-runner-backend auto \
 ```
 
@@ -186,7 +180,6 @@ Append these flags to the command above:
 | `--kt-threadpool-count` | `4` | Matches 4 NUMA nodes |
 | `--kt-num-gpu-experts` | `10` | 10 experts offloaded to GPU; adjust based on VRAM |
 | `--mem-fraction-static` | `0.85` | GPU memory fraction for KV cache |
-| `--cuda-graph-bs` | `1 2 4` | Batch sizes for CUDA graph capture |
 
 ## Performance
 
@@ -194,16 +187,18 @@ Append these flags to the command above:
 
 | Mode | Throughput |
 |---|---|
-| INT4 CPU experts, no MTP | **30 tok/s** (initial, cold start) |
-| INT4 CPU experts, MTP enabled | **36 tok/s** (initial, cold start) |
+| INT4 CPU experts, no MTP | **30 tok/s** (initial) |
+| INT4 CPU experts, MTP enabled | **36 tok/s** (initial) |
 
 - **GPU**: 2× NVIDIA RTX A6000 (48GB, SM_86)
-- **CPU**: Intel Xeon Gold 6530 (128T, 4 NUMA, AMX+AVX512_BF16)
-- **Model**: DeepSeek V4 Flash 2604B
+- **CPU**: 2x Intel Xeon Gold 6530 (128T, 4 NUMA, AMX+AVX512_BF16)
 - **Startup time**: ~4–5 minutes (weight loading + CUDA graph capture)
 
 ## References
 
 - [Official DeepSeek V4 Flash Tutorial](doc/en/DeepSeek-V4-Flash.md)
+- [Upstream ktransformers](https://github.com/kvcache-ai/ktransformers)
+- [Upstream sglang](https://github.com/kvcache-ai/sglang)
 - [KT-Kernel Parameters](https://github.com/kvcache-ai/ktransformers/tree/main/kt-kernel#kt-kernel-parameters)
-- [SGLang Fork](https://github.com/harrychk/sglang/tree/deepseek-v4-ampere)
+- [Fork ktransformers](https://github.com/harrychk/ktransformers/tree/deepseek-v4-ampere)
+- [Fork sglang](https://github.com/harrychk/sglang/tree/deepseek-v4-ampere)
