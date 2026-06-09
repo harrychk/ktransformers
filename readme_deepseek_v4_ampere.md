@@ -131,6 +131,8 @@ For INT8 quantization, replace `--quant-method int4` with `--quant-method int8` 
 
 ### Without MTP (INT4 CPU experts)
 
+> `8.6` in `FLASHINFER_CUDA_ARCH_LIST` and `TORCH_CUDA_ARCH_LIST` refers to the compute capability of the A6000 GPU (SM_86). Adjust accordingly for other GPUs (e.g., `8.9` for RTX 4090, `9.0a` for H100).
+
 ```bash
 export FLASHINFER_CUDA_ARCH_LIST=8.6a
 export TORCH_CUDA_ARCH_LIST="8.6+PTX"
