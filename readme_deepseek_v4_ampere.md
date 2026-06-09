@@ -55,9 +55,7 @@ Device capability is auto-detected at startup—no manual flags needed.
 | **NSA V4** | `index_buf_accessor_v4.py`, `v4_triton_kernel.py` — NSA sparse MLA V4-specific kernels |
 | **Misc fixes** | `kt_ep_wrapper.py`, `cuda_graph_runner.py`, `server_args.py` — KT method params, CUDA graph replay, BF16 cache flags |
 
-## Hardware Requirements
-
-### Validated Configuration
+## Validated Hardware Configuration
 
 | Component | Spec |
 |---|---|
@@ -65,14 +63,6 @@ Device capability is auto-detected at startup—no manual flags needed.
 | **CPU** | Intel Xeon Gold 6530 (128 threads, 4 NUMA nodes, AMX + AVX512_BF16) |
 | **RAM** | 754 GB |
 | **Storage** | ~340 GB per model variant |
-
-### Supported GPU Architectures
-
-| Arch | Compute Cap | FP8 Native | MXFP4 MoE | Status |
-|---|---|---|---|---|
-| Hopper (H100) | SM_90 | ✅ | trtllm-fp4 | Untested |
-| Ada Lovelace (RTX 4090) | SM_89 | ✅ | triton_kernels | Supported |
-| Ampere (A6000 / A100) | SM_86 | ❌ → BF16 | triton_kernels | ✅ Validated |
 
 ## Installation
 
@@ -135,18 +125,18 @@ For INT8 quantization, replace `--quant-method int4` with `--quant-method int8` 
 
 ### Without MTP (INT4 CPU experts)
 
-> `8.6` in `FLASHINFER_CUDA_ARCH_LIST` and `TORCH_CUDA_ARCH_LIST` refers to the compute capability of the A6000 GPU (SM_86). Adjust accordingly for other GPUs (e.g., `8.9` for RTX 4090, `9.0a` for H100).
+> `8.6` in `FLASHINFER_CUDA_ARCH_LIST` and `TORCH_CUDA_ARCH_LIST` refers to the compute capability of the A6000 GPU (SM_86). Adjust accordingly for other GPUs (e.g., `8.9` for RTX 4090, `9.0a` for H100). SGLANG_DSV4_2604_SUBMODE should be 2604B if kt-method is MXFP4.
 
 ```bash
 export FLASHINFER_CUDA_ARCH_LIST=8.6a
 export TORCH_CUDA_ARCH_LIST="8.6+PTX"
 export SGLANG_DSV4_MODE=2604
-export SGLANG_DSV4_2604_SUBMODE=2604B
+export SGLANG_DSV4_2604_SUBMODE=2604A
 
 numactl --interleave=all python -m sglang.launch_server \
   --host 0.0.0.0 --port 30000 \
-  --model /path/to/models/DeepSeek-V4-Flash \
   --served-model-name DeepSeek-V4-Flash \
+  --model /path/to/models/DeepSeek-V4-Flash \
   --kt-weight-path /path/to/models/DeepSeek-V4-Flash-AMXINT4 \
   --kt-method AMXINT4 \
   --kt-num-gpu-experts 0 \
@@ -177,27 +167,17 @@ Append these flags to the command above:
 
 > **Note:** MTP requires `set_capture_batch_sizes()` merge support (included in this branch) so that the main model and MTP draft model CUDA graph runners can coexist without overwriting each other's registered batch sizes.
 
-### Key Parameter Notes
-
-| Parameter | This System | Explanation |
-|---|---|---|
-| `--kt-method` | `AMXINT4` | CPU uses AMX-INT4 backend (requires converted weights) |
-| `--kt-cpuinfer` | `64` | 64 physical cores (16 per NUMA × 4 nodes) for CPU inference |
-| `--kt-threadpool-count` | `4` | Matches 4 NUMA nodes |
-| `--kt-num-gpu-experts` | `10` | 10 experts offloaded to GPU; adjust based on VRAM |
-| `--mem-fraction-static` | `0.85` | GPU memory fraction for KV cache |
-
 ## Performance
 
 ### Validated Throughput (Single Request Decode)
 
 | Mode | Throughput |
 |---|---|
-| INT4 CPU experts, no MTP | **30 tok/s** (initial) |
-| INT4 CPU experts, MTP enabled | **36 tok/s** (initial) |
+| INT4 CPU experts, no MTP | **30 tok/s** (at beginning) |
+| INT4 CPU experts, MTP enabled | **36 tok/s** (at beginning) |
 
 - **GPU**: 2× NVIDIA RTX A6000 (48GB, SM_86)
-- **CPU**: 2x Intel Xeon Gold 6530 (128T, 4 NUMA, AMX+AVX512_BF16)
+- **CPU**: 2x Intel Xeon Gold 6530 (total 64 core, 4 NUMA, AMX+AVX512_BF16)
 - **Startup time**: ~4–5 minutes (weight loading + CUDA graph capture)
 
 ## References
