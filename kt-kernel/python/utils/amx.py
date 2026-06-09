@@ -499,6 +499,7 @@ class NativeMoEWrapper(BaseMoEWrapper):
         method: str = "RAWINT4",
         numa_nodes: Optional[List[int]] = None,
         swiglu_limit: float = 0.0,
+        num_layers: int = 0,
     ):
         # Defence in depth: reject swiglu_limit on non-MXFP4 methods even
         # if the experts.py guard is bypassed (e.g., by a future caller
@@ -570,6 +571,8 @@ class NativeMoEWrapper(BaseMoEWrapper):
             numa_nodes=numa_nodes,
             swiglu_limit=swiglu_limit,
         )
+
+        self._num_layers = num_layers  # only for MXFP4 MTP key routing
 
         if NativeMoEWrapper._native_loader_instance is None:
             NativeMoEWrapper._native_loader_instance = NativeMoEWrapper._create_loader(method, weight_path)
@@ -645,13 +648,20 @@ class NativeMoEWrapper(BaseMoEWrapper):
             self.loader = NativeMoEWrapper._native_loader_instance
 
         t0 = time.time()
-        base_key = f"model.layers.{self.layer_idx}"
-        try:
+        # MTP layers use mtp.{N} prefix in the HF checkpoint; main layers
+        # use model.layers.{N} (with a language_model fallback for VL models).
+        if self._num_layers > 0 and self.layer_idx >= self._num_layers:
+            mtp_idx = self.layer_idx - self._num_layers
+            base_key = f"mtp.{mtp_idx}"
             weights = self.loader.load_experts(base_key)
-        except (ValueError, KeyError):
-            # For VL/multimodal models (e.g. Qwen3.5) with 'language_model' prefix
-            base_key = f"model.language_model.layers.{self.layer_idx}"
-            weights = self.loader.load_experts(base_key)
+        else:
+            base_key = f"model.layers.{self.layer_idx}"
+            try:
+                weights = self.loader.load_experts(base_key)
+            except (ValueError, KeyError):
+                # For VL/multimodal models (e.g. Qwen3.5)
+                base_key = f"model.language_model.layers.{self.layer_idx}"
+                weights = self.loader.load_experts(base_key)
         t1 = time.time()
 
         # Keep individual tensors instead of stacking - avoid expensive memory copy

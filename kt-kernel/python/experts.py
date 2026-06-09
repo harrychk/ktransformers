@@ -149,6 +149,10 @@ class KTMoEWrapper:
         # _apply_swiglu_limit). Plumbed into MOEConfig.swiglu_limit and
         # consumed by amx::act_fn. Origin: kt-sglang 耦合.
         swiglu_limit: float = 0.0,
+        # MTP layer offset: when set and layer_idx >= num_layers, the layer
+        # is an MTP layer. Only used by NativeMoEWrapper (MXFP4) to route
+        # weight keys to the mtp.{N} prefix in the HF checkpoint.
+        num_layers: int = 0,
     ):
         """
         Factory method to create the appropriate backend implementation.
@@ -220,6 +224,7 @@ class KTMoEWrapper:
                 method=method,
                 numa_nodes=numa_nodes,
                 swiglu_limit=swiglu_limit,
+                num_layers=num_layers,
             )
         else:  # mode == "sft"
             # SFT factory does not plumb swiglu_limit; reject non-zero
@@ -316,6 +321,7 @@ def _create_inference_wrapper(
     method: str,
     numa_nodes: Optional[List[int]] = None,
     swiglu_limit: float = 0.0,
+    num_layers: int = 0,
 ) -> BaseMoEWrapper:
     """
     Create an inference wrapper based on the method.
@@ -349,6 +355,7 @@ def _create_inference_wrapper(
     extra_kwargs = {}
     if method == "MXFP4":
         extra_kwargs["swiglu_limit"] = swiglu_limit
+        extra_kwargs["num_layers"] = num_layers
     elif swiglu_limit != 0.0:
         raise ValueError(
             f"swiglu_limit={swiglu_limit} is only supported on method='MXFP4', "
