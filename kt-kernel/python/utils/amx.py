@@ -200,7 +200,6 @@ class AMXMoEWrapper(BaseMoEWrapper):
         max_deferred_experts_per_token: Optional[int] = None,
         method: str = "AMXINT4",
         numa_nodes: Optional[List[int]] = None,
-        num_layers: int = 0,
     ):
         """
         Initialize AMX MoE Wrapper.
@@ -252,7 +251,6 @@ class AMXMoEWrapper(BaseMoEWrapper):
             max_deferred_experts_per_token=max_deferred_experts_per_token,
             method=method,
             numa_nodes=numa_nodes,
-            num_layers=num_layers,
         )
 
         # AMX-specific: Check if we should load merged safetensor weights
@@ -353,7 +351,7 @@ class AMXMoEWrapper(BaseMoEWrapper):
         down_scale_ptrs = []
 
         if self.load_merged_weight:
-            base_key = self._weight_key_prefix()
+            base_key = f"blk.{self.layer_idx}"
             w = self.safetensor_loader.load_experts(base_key)
 
             self.gate_weights = w["gate"]
@@ -501,7 +499,6 @@ class NativeMoEWrapper(BaseMoEWrapper):
         method: str = "RAWINT4",
         numa_nodes: Optional[List[int]] = None,
         swiglu_limit: float = 0.0,
-        num_layers: int = 0,
     ):
         # Defence in depth: reject swiglu_limit on non-MXFP4 methods even
         # if the experts.py guard is bypassed (e.g., by a future caller
@@ -572,7 +569,6 @@ class NativeMoEWrapper(BaseMoEWrapper):
             method=method,
             numa_nodes=numa_nodes,
             swiglu_limit=swiglu_limit,
-            num_layers=num_layers,
         )
 
         if NativeMoEWrapper._native_loader_instance is None:
@@ -649,20 +645,13 @@ class NativeMoEWrapper(BaseMoEWrapper):
             self.loader = NativeMoEWrapper._native_loader_instance
 
         t0 = time.time()
-        # MTP layers use the mp.{N} prefix in the checkpoint; main layers
-        # use model.layers.{N} (with a language_model fallback for VL models).
-        if self.num_layers > 0 and self.layer_idx >= self.num_layers:
-            mtp_idx = self.layer_idx - self.num_layers
-            base_key = f"mtp.{mtp_idx}"
+        base_key = f"model.layers.{self.layer_idx}"
+        try:
             weights = self.loader.load_experts(base_key)
-        else:
-            base_key = f"model.layers.{self.layer_idx}"
-            try:
-                weights = self.loader.load_experts(base_key)
-            except (ValueError, KeyError):
-                # For VL/multimodal models (e.g. Qwen3.5) with 'language_model' prefix
-                base_key = f"model.language_model.layers.{self.layer_idx}"
-                weights = self.loader.load_experts(base_key)
+        except (ValueError, KeyError):
+            # For VL/multimodal models (e.g. Qwen3.5) with 'language_model' prefix
+            base_key = f"model.language_model.layers.{self.layer_idx}"
+            weights = self.loader.load_experts(base_key)
         t1 = time.time()
 
         # Keep individual tensors instead of stacking - avoid expensive memory copy

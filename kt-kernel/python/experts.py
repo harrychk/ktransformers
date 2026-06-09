@@ -149,10 +149,6 @@ class KTMoEWrapper:
         # _apply_swiglu_limit). Plumbed into MOEConfig.swiglu_limit and
         # consumed by amx::act_fn. Origin: kt-sglang 耦合.
         swiglu_limit: float = 0.0,
-        # Number of main transformer layers (num_hidden_layers). When set
-        # and layer_idx >= num_layers, the layer is treated as an MTP layer
-        # and weight keys use the ``mtp.{N}`` prefix.
-        num_layers: int = 0,
     ):
         """
         Factory method to create the appropriate backend implementation.
@@ -224,7 +220,6 @@ class KTMoEWrapper:
                 method=method,
                 numa_nodes=numa_nodes,
                 swiglu_limit=swiglu_limit,
-                num_layers=num_layers,
             )
         else:  # mode == "sft"
             # SFT factory does not plumb swiglu_limit; reject non-zero
@@ -240,7 +235,6 @@ class KTMoEWrapper:
                 num_experts=num_experts,
                 num_experts_per_tok=num_experts_per_tok,
                 hidden_size=hidden_size,
-                num_layers=num_layers,
                 moe_intermediate_size=moe_intermediate_size,
                 num_gpu_experts=num_gpu_experts,
                 cpuinfer_threads=cpuinfer_threads,
@@ -322,7 +316,6 @@ def _create_inference_wrapper(
     method: str,
     numa_nodes: Optional[List[int]] = None,
     swiglu_limit: float = 0.0,
-    num_layers: int = 0,
 ) -> BaseMoEWrapper:
     """
     Create an inference wrapper based on the method.
@@ -379,7 +372,6 @@ def _create_inference_wrapper(
         max_deferred_experts_per_token=max_deferred_experts_per_token,
         method=method,
         numa_nodes=numa_nodes,
-        num_layers=num_layers,
         **extra_kwargs,
     )
 
@@ -401,7 +393,6 @@ def _create_sft_wrapper(
     max_cache_depth: int,
     group_size: int,
     zero_point: bool,
-    num_layers: int = 0,
 ):
     """
     Create an SFT wrapper based on the method.
@@ -432,5 +423,4 @@ def _create_sft_wrapper(
         method=method,
         group_size=group_size,
         zero_point=zero_point,
-        num_layers=num_layers,
     )

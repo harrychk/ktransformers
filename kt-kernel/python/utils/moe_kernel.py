@@ -50,7 +50,6 @@ class GeneralMoEWrapper(BaseMoEWrapper):
         max_deferred_experts_per_token: Optional[int] = None,
         method: str = "MOE_INT8",
         numa_nodes: Optional[List[int]] = None,
-        num_layers: int = 0,
     ):
         """
         Initialize general MoE Wrapper.
@@ -100,7 +99,6 @@ class GeneralMoEWrapper(BaseMoEWrapper):
             max_deferred_experts_per_token=max_deferred_experts_per_token,
             method=method,
             numa_nodes=numa_nodes,
-            num_layers=num_layers,
         )
 
         # moe-specific: Check if we should load merged safetensor weights
@@ -201,7 +199,7 @@ class GeneralMoEWrapper(BaseMoEWrapper):
         down_scale_ptrs = []
 
         if self.load_merged_weight:
-            base_key = self._weight_key_prefix()
+            base_key = f"blk.{self.layer_idx}"
             w = self.safetensor_loader.load_experts(base_key)
 
             self.gate_weights = w["gate"]

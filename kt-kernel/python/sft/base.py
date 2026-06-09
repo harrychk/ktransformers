@@ -145,7 +145,6 @@ class BaseSFTMoEWrapper(_MoEBase, ABC):
         lora_rank: int = 16,
         lora_alpha: float = 32.0,
         max_cache_depth: int = 1,
-        num_layers: int = 0,
     ):
         self.cpu_infer = self._get_cpu_infer(cpuinfer_threads, threadpool_count)
 
@@ -166,7 +165,6 @@ class BaseSFTMoEWrapper(_MoEBase, ABC):
         self.weight_path = weight_path
         self.chunked_prefill_size = chunked_prefill_size
         self.threadpool_count = threadpool_count
-        self.num_layers = num_layers  # 0 = legacy; >0 enables mtp.{N} key prefix
 
         self.lora_rank = lora_rank
         self.lora_alpha = lora_alpha
@@ -207,18 +205,6 @@ class BaseSFTMoEWrapper(_MoEBase, ABC):
     def _make_backward_task(self, buffer: KExpertsSFTBuffer):
         """Construct the C++ backward task object. Backend-specific."""
         ...
-
-    def _weight_key_prefix(self) -> str:
-        """Return the safetensors key prefix for this layer.
-
-        Main layers use ``blk.{layer_idx}``; MTP layers (detected via
-        ``layer_idx >= num_layers`` when ``num_layers > 0``) use ``mtp.{N}``
-        with zero-based indexing.
-        """
-        if self.num_layers > 0 and self.layer_idx >= self.num_layers:
-            mtp_idx = self.layer_idx - self.num_layers
-            return f"mtp.{mtp_idx}"
-        return f"blk.{self.layer_idx}"
 
     @abstractmethod
     def load_weights(self, physical_to_logical_map_cpu: torch.Tensor) -> None:

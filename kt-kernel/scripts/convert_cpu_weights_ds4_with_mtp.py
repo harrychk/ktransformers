@@ -372,12 +372,10 @@ class ConverterBase:
     def _layer_output_prefix(self, layer_idx: int) -> str:
         """Return the output key prefix for a given internal layer index.
 
-        Main layers use ``blk.{L}``; MTP layers use ``mtp.{idx}`` with
-        zero-based indexing (e.g. mtp.0, mtp.1, …).
+        All layers (main and MTP) use ``blk.{layer_idx}``. MTP layers are
+        assigned contiguous indices starting after the last main layer, so
+        no special prefix is needed.
         """
-        if self.mtp_offset is not None and layer_idx >= self.mtp_offset:
-            mtp_idx = layer_idx - self.mtp_offset
-            return f"mtp.{mtp_idx}"
         return f"blk.{layer_idx}"
 
     def _load_tensor(self, key: str) -> torch.Tensor:
