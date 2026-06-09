@@ -81,6 +81,7 @@ class AMXSFTMoEWrapper(BaseSFTMoEWrapper):
         method: str = "AMXBF16_SFT",
         group_size: int = 128,
         zero_point: bool = True,
+        num_layers: int = 0,
     ):
         if not _HAS_AMX_SFT_SUPPORT:
             raise RuntimeError(
@@ -102,6 +103,7 @@ class AMXSFTMoEWrapper(BaseSFTMoEWrapper):
             lora_rank=lora_rank,
             lora_alpha=lora_alpha,
             max_cache_depth=max_cache_depth,
+            num_layers=num_layers,
         )
 
         self.method = method
@@ -299,7 +301,7 @@ class AMXSFTMoEWrapper(BaseSFTMoEWrapper):
             base_key = f"model.layers.{self.layer_idx}"
         else:
             loader = SafeTensorLoader(self.weight_path)
-            base_key = f"blk.{self.layer_idx}"
+            base_key = self._weight_key_prefix()
 
         experts_data = loader.load_experts(base_key, device="cpu")
 

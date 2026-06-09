@@ -249,6 +249,7 @@ class BaseMoEWrapper(_MoEBase, ABC):
         method: str = "AMXINT4",
         numa_nodes: Optional[List[int]] = None,
         swiglu_limit: float = 0.0,
+        num_layers: int = 0,
     ):
         """
         Initialize base MoE Wrapper.
@@ -272,6 +273,10 @@ class BaseMoEWrapper(_MoEBase, ABC):
             method: Backend method string
             numa_nodes: Explicit list of NUMA node IDs for subpool mapping.
                         If None, defaults to [0, 1, ..., threadpool_count-1].
+            num_layers: Number of main transformer layers (num_hidden_layers).
+                        When set and layer_idx >= num_layers, the layer is treated
+                        as an MTP layer and weight keys use the ``mtp.{N}`` prefix.
+                        Default 0 preserves the legacy ``blk.{N}`` behaviour.
         """
         self.layer_idx = layer_idx
         self.num_experts = num_experts
@@ -303,6 +308,7 @@ class BaseMoEWrapper(_MoEBase, ABC):
 
         BaseMoEWrapper._layer_has_pending_deferred[self.layer_idx] = False
         self.method = method
+        self.num_layers = num_layers  # 0 = legacy; >0 enables mtp.{N} key prefix
         # V4-Flash 2604B SwiGLU clamp limit; 0.0 = disabled. NativeMoEWrapper
         # (MXFP4 path) reads this in load_weights() and writes it into
         # MOEConfig.swiglu_limit. Other backends ignore it (C++ act_fn skips
@@ -314,6 +320,21 @@ class BaseMoEWrapper(_MoEBase, ABC):
 
         # Backend-specific initialization happens in subclasses
         self.moe = None
+
+    def _weight_key_prefix(self) -> str:
+        """Return the safetensors key prefix for this layer.
+
+        Main layers use ``blk.{layer_idx}``; MTP layers (detected via
+        ``layer_idx >= num_layers`` when ``num_layers > 0``) use ``mtp.{N}``
+        with zero-based indexing.
+
+        When ``num_layers == 0`` (default), the legacy ``blk.{N}`` prefix is
+        always returned for backward compatibility.
+        """
+        if self.num_layers > 0 and self.layer_idx >= self.num_layers:
+            mtp_idx = self.layer_idx - self.num_layers
+            return f"mtp.{mtp_idx}"
+        return f"blk.{self.layer_idx}"
 
     @abstractmethod
     def load_weights_from_tensors(
@@ -512,13 +533,19 @@ class BaseMoEWrapper(_MoEBase, ABC):
         This allows pre-allocation of CPU buffers for specific batch sizes,
         improving performance by avoiding buffer re-allocation during inference.
 
+        Merges with existing batch sizes so that multiple CUDA graph runners
+        (e.g., main model + MTP/EAGLE draft model) can coexist without
+        overwriting each other's registered sizes.
+
         Args:
             capture_bs: List of batch sizes to capture (e.g., [1, 2, 4, 8, 16])
 
         Example:
             >>> BaseMoEWrapper.set_capture_batch_sizes([1, 2, 4, 8, 16])
         """
-        KExpertsCPUBuffer.capture_bs = capture_bs
+        existing = KExpertsCPUBuffer.capture_bs
+        merged = list(sorted(set(existing + capture_bs)))
+        KExpertsCPUBuffer.capture_bs = merged
 
     @staticmethod
     def get_capture_batch_sizes() -> List[int]:

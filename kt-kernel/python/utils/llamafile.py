@@ -42,6 +42,7 @@ class LlamafileMoEWrapper(BaseMoEWrapper):
         max_deferred_experts_per_token: Optional[int] = None,
         method: str = "LLAMAFILE",
         numa_nodes: Optional[List[int]] = None,
+        num_layers: int = 0,
     ):
         """
         Initialize Llamafile MoE Wrapper.
@@ -135,6 +136,7 @@ class LlamafileMoEWrapper(BaseMoEWrapper):
             max_deferred_experts_per_token=max_deferred_experts_per_token,
             method=method,
             numa_nodes=numa_nodes,
+            num_layers=num_layers,
         )
 
         self.weights_to_keep = None
@@ -174,7 +176,7 @@ class LlamafileMoEWrapper(BaseMoEWrapper):
             physical_to_logical_map_cpu = torch.arange(self.num_experts, dtype=torch.int32, device="cpu")
             print(f"  Using default identity mapping for {self.num_experts} experts")
 
-        base_key = f"blk.{self.layer_idx}"
+        base_key = self._weight_key_prefix()
 
         # Load quantized tensors from GGUF
         gate_data, gate_type = self.gguf_loader.get_undequanted_tensor_and_ggml_type(f"{base_key}.ffn_gate_exps.weight")

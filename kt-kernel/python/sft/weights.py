@@ -442,21 +442,36 @@ def load_experts_from_checkpoint_files(
     return gate_proj, up_proj, down_proj
 
 
+def _kt_weight_key_prefix(layer_idx: int, num_layers: int = 0) -> str:
+    """Return the safetensors key prefix for a given layer index.
+
+    Main layers use ``blk.{layer_idx}``; MTP layers (detected via
+    ``layer_idx >= num_layers`` when ``num_layers > 0``) use ``mtp.{N}``
+    with zero-based indexing.
+    """
+    if num_layers > 0 and layer_idx >= num_layers:
+        mtp_idx = layer_idx - num_layers
+        return f"mtp.{mtp_idx}"
+    return f"blk.{layer_idx}"
+
+
 def load_experts_from_kt_weight_path(
     kt_weight_path: str,
     layer_idx: int,
     num_experts: int,
     hidden_size: int,
     intermediate_size: int,
+    num_layers: int = 0,
 ) -> INT8ExpertWeights:
     """Load INT8 preprocessed expert weights from kt_weight_path for a specific layer."""
     if not SAFETENSORS_AVAILABLE:
         raise ImportError("safetensors is required for loading kt_weight_path")
 
     index = _load_kt_weight_index(kt_weight_path)
+    key_prefix = _kt_weight_key_prefix(layer_idx, num_layers)
 
     numa_count = 0
-    test_key_prefix = f"blk.{layer_idx}.ffn_gate_exps.0.numa."
+    test_key_prefix = f"{key_prefix}.ffn_gate_exps.0.numa."
     for key in index.keys():
         if key.startswith(test_key_prefix) and key.endswith(".weight"):
             numa_idx = int(key.split("numa.")[1].split(".")[0])
@@ -465,7 +480,7 @@ def load_experts_from_kt_weight_path(
     if numa_count == 0:
         raise FileNotFoundError(
             f"No weights found for layer {layer_idx} in {kt_weight_path}. "
-            f"Expected keys like 'blk.{layer_idx}.ffn_gate_exps.0.numa.0.weight'"
+            f"Expected keys like '{key_prefix}.ffn_gate_exps.0.numa.0.weight'"
         )
 
     logger.info(
@@ -483,8 +498,8 @@ def load_experts_from_kt_weight_path(
         gate_w_parts = []
         gate_s_parts = []
         for numa_idx in range(numa_count):
-            w_key = f"blk.{layer_idx}.ffn_gate_exps.{expert_idx}.numa.{numa_idx}.weight"
-            s_key = f"blk.{layer_idx}.ffn_gate_exps.{expert_idx}.numa.{numa_idx}.scale"
+            w_key = f"{key_prefix}.ffn_gate_exps.{expert_idx}.numa.{numa_idx}.weight"
+            s_key = f"{key_prefix}.ffn_gate_exps.{expert_idx}.numa.{numa_idx}.scale"
 
             if w_key not in index:
                 raise FileNotFoundError(f"Weight key not found: {w_key}")
@@ -503,8 +518,8 @@ def load_experts_from_kt_weight_path(
         up_w_parts = []
         up_s_parts = []
         for numa_idx in range(numa_count):
-            w_key = f"blk.{layer_idx}.ffn_up_exps.{expert_idx}.numa.{numa_idx}.weight"
-            s_key = f"blk.{layer_idx}.ffn_up_exps.{expert_idx}.numa.{numa_idx}.scale"
+            w_key = f"{key_prefix}.ffn_up_exps.{expert_idx}.numa.{numa_idx}.weight"
+            s_key = f"{key_prefix}.ffn_up_exps.{expert_idx}.numa.{numa_idx}.scale"
 
             if w_key not in index:
                 raise FileNotFoundError(f"Weight key not found: {w_key}")
@@ -523,8 +538,8 @@ def load_experts_from_kt_weight_path(
         down_w_parts = []
         down_s_parts = []
         for numa_idx in range(numa_count):
-            w_key = f"blk.{layer_idx}.ffn_down_exps.{expert_idx}.numa.{numa_idx}.weight"
-            s_key = f"blk.{layer_idx}.ffn_down_exps.{expert_idx}.numa.{numa_idx}.scale"
+            w_key = f"{key_prefix}.ffn_down_exps.{expert_idx}.numa.{numa_idx}.weight"
+            s_key = f"{key_prefix}.ffn_down_exps.{expert_idx}.numa.{numa_idx}.scale"
 
             if w_key not in index:
                 raise FileNotFoundError(f"Weight key not found: {w_key}")
