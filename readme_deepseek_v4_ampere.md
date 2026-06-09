@@ -11,7 +11,7 @@ This branch (`deepseek-v4-ampere`) enables **DeepSeek V4 Flash** model inference
 | V4 Flash on SM_120 (RTX 5090) | ✅ | Untested |
 | V4 Flash on SM_89 (RTX 4090) | ✅ | Untested |
 | V4 Flash on SM_86 (A6000 / A100) | ❌ (FP8 unsupported) | ✅ Validated |
-| V4 Flash MTP / EAGLE speculative decoding | ✅ (SM_89+, FP8 native) | ✅ Validated on SM_86 |
+| V4 Flash MTP / EAGLE speculative decoding | ✅ GPU experts only | ✅ CPU experts via kt-kernel (AMXINT4/AMXINT8) |
 | CPU expert INT4 quant via kt-kernel | ✅ | ✅ |
 | CPU expert INT8 quant via kt-kernel | ✅ | ✅ |
 | CPU expert MXFP4 quant via kt-kernel | ✅ | ✅ |
@@ -31,7 +31,7 @@ Device capability is auto-detected at startup—no manual flags needed.
 
 ## Changes Summary
 
-### ktransformers (this repo)
+### ktransformers fork (`harrychk/ktransformers` at `deepseek-v4-ampere`)
 
 | File | Change |
 |---|---|
