@@ -6,12 +6,14 @@ This branch (`deepseek-v4-ampere`) enables **DeepSeek V4 Flash** model inference
 
 | Feature | Upstream (`main`) | This Branch |
 |---|---|---|
-| V4 Flash on SM_120 (RTX 5090) | ✅ | ✅ |
-| V4 Flash on SM_89 (RTX 4090) | ✅ | ✅ |
-| V4 Flash on SM_86 (A6000 / A100) | ❌ (FP8 unsupported) | ✅ BF16 fallback |
-| MTP / EAGLE speculative decoding | ✅ (SM_120/89 only) | ✅ including SM_86 |
+| V4 Flash on SM_120 (RTX 5090) | ✅ | Untested |
+| V4 Flash on SM_89 (RTX 4090) | ✅ | Untested |
+| V4 Flash on SM_86 (A6000 / A100) | ❌ (FP8 unsupported) | ✅ Validated |
+| MTP / EAGLE speculative decoding | ✅ (SM_120/89 only) | ✅ Validated on SM_86 |
 | CPU expert INT4 quant via kt-kernel | ✅ | ✅ |
 | CPU expert INT8 quant via kt-kernel | ✅ | ✅ |
+
+> **Note:** SM_120 and SM_89 GPUs have not been tested on this branch. While the BF16 fallback path activates only on SM_86 (auto-detected via `torch.cuda.get_device_capability()`), the sglang attention/kernel changes may affect other architectures. Testing feedback on non-Ampere GPUs is welcome.
 
 ### SM_86 BF16 Fallback Mechanism
 
