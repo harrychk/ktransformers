@@ -1,0 +1,228 @@
+# DeepSeek V4 Flash on Ampere (SM_86) GPUs
+
+This branch (`deepseek-v4-ampere`) enables **DeepSeek V4 Flash** model inference on **Ampere-generation GPUs** (RTX A6000 / A100, SM_86) that lack native FP8 support. All FP8 ops are gracefully degraded to BF16, and Multi-Token Prediction (MTP) speculative decoding is fully functional.
+
+## What This Branch Enables
+
+| Feature | Upstream (`main`) | This Branch |
+|---|---|---|
+| V4 Flash on SM_120 (RTX 5090) | ✅ | ✅ |
+| V4 Flash on SM_89 (RTX 4090) | ✅ | ✅ |
+| V4 Flash on SM_86 (A6000 / A100) | ❌ (FP8 unsupported) | ✅ BF16 fallback |
+| MTP / EAGLE speculative decoding | ✅ (SM_120/89 only) | ✅ including SM_86 |
+| CPU expert INT4 quant via kt-kernel | ✅ | ✅ |
+| CPU expert INT8 quant via kt-kernel | ✅ | ✅ |
+
+### SM_86 BF16 Fallback Mechanism
+
+On Ampere GPUs, the following automatically fall back to BF16:
+
+1. **KV Cache**: Stored as pure BF16 instead of FP8 quantized (no per-tile scale, 1024 bytes/token)
+2. **Attention (NSA MLA)**: `quant_to_nope_bf16_rope_bf16_pack` replaces the FP8 pack kernel
+3. **MTP Weights**: `_fix_mtp_fp8_weights()` dequantizes `e_proj`/`h_proj` from FP8 E4M3 to BF16 at load time
+
+Device capability is auto-detected at startup—no manual flags needed.
+
+## Changes Summary
+
+### ktransformers (this repo)
+
+| File | Change |
+|---|---|
+| `.gitmodules` | sglang submodule → `harrychk/sglang` (`deepseek-v4-ampere` branch) |
+| `kt-kernel/python/experts_base.py` | `set_capture_batch_sizes()` merges instead of overwrites—allows main model + MTP draft CUDA graph runners to coexist |
+| `kt-kernel/scripts/convert_cpu_weights_ds4_with_mtp.py` | MTP-aware CPU weight conversion script. Outputs expert weights with unified `blk.{N}` prefix (MTP layers use contiguous indices after main layers) |
+| `third_party/sglang` | Points to `harrychk/sglang` at `deepseek-v4-ampere` |
+
+### sglang fork (`harrychk/sglang` at `deepseek-v4-ampere`)
+
+32 files changed (~1570 insertions). Key changes:
+
+| Area | Change |
+|---|---|
+| **BF16 KV Cache** | `deepseekv4_memory_pool.py` — `use_bf16_cache` mode, `SetBf16KAndS` kernel, 1024 bytes/token layout |
+| **BF16 Attention** | `quant_k_cache_v4.py`, `v4_triton_kernel.py` — BF16 packing/dispatch kernels for NSA MLA |
+| **FP8→BF16 MTP weights** | `deepseek_v4.py` — `_fix_mtp_fp8_weights()` dequantizes and patches model params |
+| **MTP Draft** | `deepseek_v4.py` — `mtp_skip_kv_cache_save` prevents draft KV writes to shared cache |
+| **EAGLE MTP** | `eagle_draft_cuda_graph_runner.py`, `eagle_worker_v2.py`, `standalone_worker.py` etc. — MTP draft CUDA graph and worker integration |
+| **V4 Flash** | `compressed/indexer.py` (+470 lines), `compressor.py`, `paged_prefill.py` — compressed attention for V4 |
+| **NSA V4** | `index_buf_accessor_v4.py`, `v4_triton_kernel.py` — NSA sparse MLA V4-specific kernels |
+| **Misc fixes** | `kt_ep_wrapper.py`, `cuda_graph_runner.py`, `server_args.py` — KT method params, CUDA graph replay, BF16 cache flags |
+
+## Hardware Requirements
+
+### Validated Configuration
+
+| Component | Spec |
+|---|---|
+| **GPU** | 2× NVIDIA RTX A6000 (48GB, SM_86) |
+| **CPU** | Intel Xeon Gold 6530 (128 threads, 4 NUMA nodes, AMX + AVX512_BF16) |
+| **RAM** | 754 GB |
+| **Storage** | ~340 GB per model variant |
+
+### Supported GPU Architectures
+
+| Arch | Compute Cap | FP8 Native | MXFP4 MoE | Status |
+|---|---|---|---|---|
+| Hopper (H100) | SM_90 | ✅ | trtllm-fp4 | Untested |
+| Ada Lovelace (RTX 4090) | SM_89 | ✅ | triton_kernels | Supported |
+| Ampere (A6000 / A100) | SM_86 | ❌ → BF16 | triton_kernels | ✅ Validated |
+
+## Installation
+
+### 1. Clone and set up ktransformers
+
+```bash
+git clone https://github.com/harrychk/ktransformers.git
+cd ktransformers
+git checkout deepseek-v4-ampere
+git submodule update --init --recursive
+```
+
+### 2. Set up kt-kernel (editable install recommended)
+
+```bash
+cd kt-kernel
+pip install -e .
+```
+
+### 3. Set up sglang (must use the fork, not upstream)
+
+```bash
+cd ..
+pip install -e third_party/sglang/python
+```
+
+### 4. Install additional dependencies
+
+```bash
+pip install --upgrade flashinfer-python flashinfer-cubin
+pip install transformers==4.57.1
+pip install tilelang
+```
+
+> See the [official tutorial](doc/en/DeepSeek-V4-Flash.md) for detailed prerequisites including CUDA 12.8+, flashinfer ≥ 0.6.9, and transformers version constraints.
+
+## Weight Conversion
+
+### Download Original Model
+
+```bash
+huggingface-cli download deepseek-ai/DeepSeek-V4-Flash \
+  --local-dir /path/to/models/DeepSeek-V4-Flash
+```
+
+### Convert CPU Expert Weights (INT4)
+
+This step dequantizes MXFP4 routed experts and re-quantizes them to AMX-INT4 for CPU inference. Use the **MTP-aware** conversion script included in this branch:
+
+```bash
+cd kt-kernel
+
+python scripts/convert_cpu_weights_ds4_with_mtp.py \
+  --input-path /path/to/models/DeepSeek-V4-Flash \
+  --input-type fp4 \
+  --output /path/to/models/DeepSeek-V4-Flash-AMXINT4 \
+  --quant-method int4 \
+  --cpuinfer-threads 64 \
+  --threadpool-count 4 \
+  --no-merge-safetensor
+```
+
+**Parameters:**
+- `--input-path`: Original HF checkpoint directory
+- `--input-type fp4`: Input weight dtype (MXFP4 for V4 Flash)
+- `--output`: Output directory for INT4-quantized weights
+- `--quant-method int4`: Quantize to 4-bit (AMXINT4). Use `int8` for 8-bit.
+- `--cpuinfer-threads`: Number of CPU threads for inference
+- `--threadpool-count`: Number of NUMA nodes / thread pools
+- `--no-merge-safetensor`: Keep sharded output
+
+For INT8 quantization, replace `--quant-method int4` with `--quant-method int8` and output to a different directory (e.g., `DeepSeek-V4-Flash-AMXINT8`).
+
+**What the script does differently from the standard `convert_cpu_weights_ds4.py`:**
+- Detects MTP layers from the checkpoint (`mtp.{M}` keys)
+- Assigns MTP layers contiguous indices after the last main layer
+- Outputs all expert keys with unified `blk.{N}` prefix (no `mtp.` prefix for expert keys)
+- Non-expert MTP keys (attention, norms, projections) are preserved with `mtp.` prefix for sglang compatibility
+
+## Launch Command
+
+> See the [official tutorial](doc/en/DeepSeek-V4-Flash.md) for the full parameter reference and descriptions of each flag.
+
+### Without MTP (INT4 CPU experts)
+
+```bash
+export SGLANG_DSV4_MODE=2604
+export SGLANG_DSV4_2604_SUBMODE=2604B
+
+numactl --interleave=all python -m sglang.launch_server \
+  --host 0.0.0.0 --port 30000 \
+  --model /path/to/models/DeepSeek-V4-Flash \
+  --kt-weight-path /path/to/models/DeepSeek-V4-Flash-AMXINT4 \
+  --kt-method AMXINT4 \
+  --kt-num-gpu-experts 10 \
+  --kt-cpuinfer 64 \
+  --kt-threadpool-count 4 \
+  --kt-gpu-prefill-token-threshold 4096 \
+  --kt-enable-dynamic-expert-update \
+  --tensor-parallel-size 1 \
+  --context-length 16384 \
+  --attention-backend flashinfer \
+  --mem-fraction-static 0.85 \
+  --chunked-prefill-size 2048 \
+  --max-prefill-tokens 2048 \
+  --max-running-requests 2 \
+  --watchdog-timeout 1200 \
+  --disable-shared-experts-fusion \
+  --trust-remote-code \
+  --cuda-graph-bs 1 2 4 \
+  --cuda-graph-max-bs 4 \
+  --disable-radix-cache \
+  --skip-server-warmup
+```
+
+### With MTP (Multi-Token Prediction, +20% throughput)
+
+Append these flags to the command above:
+
+```bash
+  --speculative-algorithm EAGLE \
+  --speculative-num-steps 3 \
+  --speculative-eagle-topk 1 \
+  --speculative-num-draft-tokens 4 \
+  --speculative-moe-runner-backend auto \
+```
+
+> **Note:** MTP requires `set_capture_batch_sizes()` merge support (included in this branch) so that the main model and MTP draft model CUDA graph runners can coexist without overwriting each other's registered batch sizes.
+
+### Key Parameter Notes
+
+| Parameter | This System | Explanation |
+|---|---|---|
+| `--kt-method` | `AMXINT4` | CPU uses AMX-INT4 backend (requires converted weights) |
+| `--kt-cpuinfer` | `64` | 64 physical cores (16 per NUMA × 4 nodes) for CPU inference |
+| `--kt-threadpool-count` | `4` | Matches 4 NUMA nodes |
+| `--kt-num-gpu-experts` | `10` | 10 experts offloaded to GPU; adjust based on VRAM |
+| `--mem-fraction-static` | `0.85` | GPU memory fraction for KV cache |
+| `--cuda-graph-bs` | `1 2 4` | Batch sizes for CUDA graph capture |
+
+## Performance
+
+### Validated Throughput (Single Request Decode)
+
+| Mode | Throughput |
+|---|---|
+| INT4 CPU experts, no MTP | **30 tok/s** (initial, cold start) |
+| INT4 CPU experts, MTP enabled | **36 tok/s** (initial, cold start) |
+
+- **GPU**: 2× NVIDIA RTX A6000 (48GB, SM_86)
+- **CPU**: Intel Xeon Gold 6530 (128T, 4 NUMA, AMX+AVX512_BF16)
+- **Model**: DeepSeek V4 Flash 2604B
+- **Startup time**: ~4–5 minutes (weight loading + CUDA graph capture)
+
+## References
+
+- [Official DeepSeek V4 Flash Tutorial](doc/en/DeepSeek-V4-Flash.md)
+- [KT-Kernel Parameters](https://github.com/kvcache-ai/ktransformers/tree/main/kt-kernel#kt-kernel-parameters)
+- [SGLang Fork](https://github.com/harrychk/sglang/tree/deepseek-v4-ampere)
