@@ -11,7 +11,7 @@ This branch (`deepseek-v4-ampere`) enables **DeepSeek V4 Flash** model inference
 | V4 Flash on SM_120 (RTX 5090) | ✅ | Untested |
 | V4 Flash on SM_89 (RTX 4090) | ✅ | Untested |
 | V4 Flash on SM_86 (A6000 / A100) | ❌ (FP8 unsupported) | ✅ Validated |
-| V4 Flash MTP / EAGLE speculative decoding | ✅ GPU experts only | ✅ CPU experts via kt-kernel (AMXINT4/AMXINT8) |
+| V4 Flash MTP / EAGLE speculative decoding | ✅ GPU experts only | ✅ CPU experts via kt-kernel |
 | CPU expert INT4 quant via kt-kernel | ✅ | ✅ |
 | CPU expert INT8 quant via kt-kernel | ✅ | ✅ |
 | CPU expert MXFP4 quant via kt-kernel | ✅ | ✅ |
@@ -37,7 +37,7 @@ Device capability is auto-detected at startup—no manual flags needed.
 |---|---|
 | `.gitmodules` | sglang submodule → `harrychk/sglang` (`deepseek-v4-ampere` branch) |
 | `kt-kernel/python/experts_base.py` | `set_capture_batch_sizes()` merges instead of overwrites—allows main model + MTP draft CUDA graph runners to coexist |
-| `kt-kernel/scripts/convert_cpu_weights_ds4_with_mtp.py` | MTP-aware CPU weight conversion script. Outputs expert weights with unified `blk.{N}` prefix (MTP layers use contiguous indices after main layers) |
+| `kt-kernel/scripts/convert_cpu_weights_ds4_with_mtp.py` | MTP-aware CPU weight conversion script. Converts both main and MTP layer expert weights from MXFP4 to AMXINT4/AMXINT8 for CPU inference. MTP layers use contiguous layer indices after main layers, with unified `blk.{N}` prefix |
 | `third_party/sglang` | Points to `harrychk/sglang` at `deepseek-v4-ampere` |
 
 ### sglang fork (`harrychk/sglang` at `deepseek-v4-ampere`)
