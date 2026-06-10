@@ -42,8 +42,6 @@ Device capability is auto-detected at startup—no manual flags needed.
 
 ### sglang fork (`harrychk/sglang` at `deepseek-v4-ampere`)
 
-32 files changed (~1570 insertions). Key changes:
-
 | Area | Change |
 |---|---|
 | **BF16 KV Cache** | `deepseekv4_memory_pool.py` — `use_bf16_cache` mode, `SetBf16KAndS` kernel, 1024 bytes/token layout |
