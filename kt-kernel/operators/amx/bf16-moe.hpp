@@ -54,11 +54,7 @@ class AMX_BF16_MOE_TP : public AMX_MOE_BASE<T, AMX_BF16_MOE_TP<T>> {
 
   void derived_init() {
     // BF16 has no quantization, no need to check quant_config
-    // Backend reflects the compile-time GEMM path: AMX tiles when __AMXBF16__ etc. are
-    // defined, otherwise the AVX512-BF16 fallback in amx_raw_kernels.hpp::float_mat_vec.
-    constexpr const char* backend = amx::AMX_AVAILABLE ? "AMX" : "AVX512-BF16";
-    printf("Created BF16_MOE_TP %d at numa %d (backend=%s)\n", tp_part_idx,
-           numa_node_of_cpu(sched_getcpu()), backend);
+    printf("Created AMX_BF16_MOE_TP %d at numa %d\n", tp_part_idx, numa_node_of_cpu(sched_getcpu()));
   }
 
   ~AMX_BF16_MOE_TP() = default;
